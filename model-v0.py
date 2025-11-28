@@ -16,7 +16,6 @@ from PIL import Image
 
 # -----------------------------------------------------------------
 
-# Original configs:
 # class Config:
 #     data_root = "imagenet256x256"
 #     image_size = 256                # [may test on 64x64 instead of 256x256 first]
@@ -30,7 +29,6 @@ from PIL import Image
 #     sem_encoder_name = "resnet50"   # can swap for DINOv3 later
 #     log_interval = 50
 
-# Small test configs:
 class Config:
     data_root = "imagenet256x256"
     image_size = 256                # [may test on 64x64 instead of 256x256 first]
@@ -41,7 +39,7 @@ class Config:
     max_steps = 20000               # increase to 100k+ for full training
     num_train_timesteps = 100
     lambda_sem = 0.1                # SLCD loss weight, hyperparameter
-    sem_encoder_name = "resnet50"   # can swap for DINOv3 later
+    sem_encoder_name = "resnet18"   # can swap for DINOv3 later
     log_interval = 1
 
 cfg = Config()
@@ -103,8 +101,8 @@ class ImageNetLocal(Dataset):
 train_dataset = ImageNetLocal(train_items, transform)
 val_dataset   = ImageNetLocal(val_items,   transform)
 
-train_loader = DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=0, pin_memory=False)
-val_loader   = DataLoader(val_dataset,   batch_size=cfg.batch_size, shuffle=False, num_workers=0)
+train_loader = iter(DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True, num_workers=0, pin_memory=False))
+val_loader   = iter(DataLoader(val_dataset,   batch_size=cfg.batch_size, shuffle=False, num_workers=0))
 
 # ----------------------------------------------------------------
 
@@ -119,7 +117,6 @@ for p in sem_encoder.parameters():
 
 # ----------------------------------------------------------------
 
-# Original model hyperparameters:
 # model = UNet2DModel(
 #     sample_size=cfg.image_size,   # 256
 #     in_channels=3,
@@ -128,8 +125,6 @@ for p in sem_encoder.parameters():
 #     layers_per_block=2,
 #     attention_head_dim=64
 # ).to(device)
-
-# small test hyperparameters:
 model = UNet2DModel(
     sample_size=cfg.image_size,   # 256
     in_channels=3,
@@ -166,28 +161,28 @@ print('trained')
 start_time = time.time()
 
 while global_step < cfg.max_steps:
-    imgs, _ = next(iter(train_loader))
+    imgs, _ = next(train_loader)
     imgs = imgs.to(device)
     bs = imgs.size(0)
 
     # Timesteps
-    t = torch.randint(0, cfg.num_train_timesteps, (bs,), device=device)
+    t = torch.randint(0, cfg.num_train_timesteps, (bs,))
 
     print('step 1')
 
     # q(x_t | x_0)
-    noise = torch.randn_like(imgs)
-    alpha = scheduler.alphas_cumprod[t].view(bs, 1, 1, 1)
+    noise = torch.randn_like(imgs).to(device)
+    alpha = scheduler.alphas_cumprod[t].view(bs, 1, 1, 1).to(device)
     x_t = imgs * alpha.sqrt() + noise * (1 - alpha).sqrt()
 
-    eps_pred = model(x_t, t).sample
+    eps_pred = model(x_t, t.to(device)).sample
     loss_diff = F.mse_loss(eps_pred, noise)
 
     print('step 2')
 
     # ------- Semantic Loss -------
     # sem_ts = [0, 200, 500, 800]
-    sem_ts = [0, 20, 50, 80]
+    sem_ts = [30]
     sem_losses = []
 
     with torch.no_grad():
@@ -238,3 +233,4 @@ while global_step < cfg.max_steps:
 
     global_step += 1
     print(f'just did step {global_step}')
+
